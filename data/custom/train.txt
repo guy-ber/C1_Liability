@@ -116,7 +116,6 @@ data/custom/images/00135.jpg
 data/custom/images/00136.jpg
 data/custom/images/00137.jpg
 data/custom/images/00138.jpg
-data/custom/images/00139.jpg
 data/custom/images/00140.jpg
 data/custom/images/00141.jpg
 data/custom/images/00142.jpg
