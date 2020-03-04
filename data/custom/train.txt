@@ -253,7 +253,6 @@ data/custom/images/00317.jpg
 data/custom/images/00318.jpg
 data/custom/images/00319.jpg
 data/custom/images/00320.jpg
-data/custom/images/00322.jpg
 data/custom/images/00323.jpg
 data/custom/images/00330.jpg
 data/custom/images/00333.jpg
