@@ -2,8 +2,8 @@ numpy
 torch>=1.0
 torchvision
 matplotlib
-tensorflow
-tensorboard
+tensorflow<2
+tensorboard<2
 terminaltables
 pillow
 tqdm
