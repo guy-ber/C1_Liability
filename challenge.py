@@ -7,8 +7,10 @@ import os
 import sys
 import time
 import datetime
+import itertools as it
 
 import numpy as np
+import pandas as pd
 from tqdm import tqdm
 from matplotlib.ticker import NullLocator
 
@@ -34,6 +36,7 @@ IMG_SIZE = 416
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
 
 
 def load_class_names(data_config):
@@ -59,9 +62,7 @@ def load_model(weights_path, model_def, data_config):
 
 
 def detect_imgs(model, imgs, conf_thres=CONF_THRES, nms_thres=NMS_THRES):
-    
-    Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
-    
+        
     if isinstance(imgs, np.ndarray):
         imgs = torch.from_numpy(imgs).float().to(device)
     else:
@@ -76,20 +77,26 @@ def detect_imgs(model, imgs, conf_thres=CONF_THRES, nms_thres=NMS_THRES):
     return detections
 
 
-def get_dataloader(path, path_type='folder', img_size=IMG_SIZE, batch_size=8):
-    assert path_type in ('folder', 'list')
+def get_dataloader(path, path_type='folder', img_size=IMG_SIZE, batch_size=8,
+                   with_targets=True):
+    assert path_type in ('folder', 'list', 'paths')
 
     if path_type == 'folder':
         dataset = ImageFolder(path, img_size=img_size)
     elif path_type == 'list':
         dataset = ListDataset(path, img_size=img_size, augment=False, multiscale=False)
-        
+    elif path_type == 'paths':
+        dataset = ImagePaths(path, img_size=img_size)
+
     collate_fn = dataset.collate_fn if hasattr(dataset, 'collate_fn') else None
         
     dataloader = torch.utils.data.DataLoader(
         dataset, batch_size=batch_size, shuffle=False, num_workers=1, collate_fn=collate_fn
     )
     
+    if not with_targets and path_type == 'list':
+        dataloader = (item for *item, _ in dataloader)
+        
     return dataloader
 
 
@@ -119,13 +126,14 @@ def parse_detections(detections, class_names):
     return detection_data
     
 
-def detect_folder(model, class_names, path, img_size=IMG_SIZE, batch_size=8, conf_thres=CONF_THRES, nms_thres=0.7,
+def detect_multi(model, class_names, path, path_type='list', img_size=IMG_SIZE, batch_size=8, conf_thres=CONF_THRES, nms_thres=0.7,
                 progress=tqdm):
     imgs = []
     img_detections = []
     
-    dataloader = get_dataloader(path, 'folder', img_size, batch_size)
-    
+    dataloader = get_dataloader(path, path_type, img_size, batch_size,
+                                with_targets=False)
+
     for batch_i, (img_paths, input_imgs) in enumerate(progress(dataloader)):
 
         detections = detect_imgs(model, input_imgs)
@@ -137,17 +145,23 @@ def detect_folder(model, class_names, path, img_size=IMG_SIZE, batch_size=8, con
     return imgs, img_detections
 
 
-def evaluate(model, path, iou_thres=IOU_THRE, conf_thres=CONF_THRES, nms_thres=NMS_THRES, img_size=IMG_SIZE, batch_size=8,
-              progress=tqdm):
-
-    dataloader = get_dataloader(path, 'list', img_size, batch_size)
-
+def evaluate(model, paths, class_names,
+              iou_thres=0.5, conf_thres=0.8, nms_thres=0.4,
+              img_size=416, batch_size=1,
+              progress=iter, report=False):
     
+    assert batch_size == 1, 'Batch size should be equal to 1.'
+   
+    dataloader = get_dataloader(paths, 'list', img_size, batch_size)
+
     labels = []
     sample_metrics = []  # List of tuples (TP, confs, pred)
     detections = []
     
-    for batch_i, (_, imgs, targets) in enumerate(progress(dataloader)):
+    evaluations = []
+    
+    for batch_i, (batch_paths, imgs, targets) in enumerate(progress(dataloader)):
+
         # Extract labels
         labels += targets[:, 1].tolist()
         # Rescale target
@@ -155,19 +169,42 @@ def evaluate(model, path, iou_thres=IOU_THRE, conf_thres=CONF_THRES, nms_thres=N
         targets[:, 2:] *= img_size
 
         detections = detect_imgs(model, imgs, conf_thres, nms_thres)
-        # imgs = Variable(imgs.type(Tensor), requires_grad=False)
+        statistics = get_batch_statistics(detections, targets, iou_threshold=iou_thres)
 
-        # with torch.no_grad():
-        #     outputs = model(imgs)
-        #     outputs = non_max_suppression(outputs, conf_thres=conf_thres, nms_thres=nms_thres)
-                
-        sample_metrics += get_batch_statistics(detections, targets, iou_threshold=iou_thres)
+        sample_metrics += statistics        
+
+        for img_in_batch_i, (path, metrics) in enumerate(it.zip_longest(batch_paths, statistics,
+                                                                        fillvalue=[])):
+            target_mask = (targets[:, 0] == img_in_batch_i)
+            target_labels = targets[target_mask, 1]
+
+            evaluations.append({'path': path,
+                                'tp': list(metrics[0]) if metrics else [],
+                                'pred_confs': list(metrics[1].numpy()) if metrics else [],
+                                'pred_labels': [class_names[int(label_index)]
+                                          for label_index in metrics[2]] if metrics else [],
+                                'true_labels': [class_names[int(label_index)]
+                                          for label_index in target_labels] if metrics else []})
 
     # Concatenate sample statistics
     true_positives, pred_scores, pred_labels = [np.concatenate(x, 0) for x in list(zip(*sample_metrics))]
     precision, recall, AP, f1, ap_class = ap_per_class(true_positives, pred_scores, pred_labels, labels)
 
-    return precision, recall, AP, f1, ap_class
+    evaluations_df = pd.DataFrame(evaluations)
+    
+    # Only for the detection of boxes, not classes
+    evaluations_df['precision'] = evaluations_df['tp'].apply(lambda tp: np.mean(tp))
+    evaluations_df['recall'] = (evaluations_df['tp'].apply(sum)
+                                / evaluations_df['true_labels'].apply(len))
+
+    if report:
+        print("Average Precisions:")
+        for i, c in enumerate(ap_class):
+            print(f"+ Class '{c}' ({class_names[c]}) - AP: {AP[i]}")
+
+        print(f"mAP: {AP.mean()}")
+
+    return precision, recall, AP, f1, ap_class, evaluations_df
 
 
 def draw_img(path):
@@ -220,14 +257,16 @@ def draw_detections(path, detections, img_size=IMG_SIZE, output_path=None):
                                              )[0][0])]
 
                 # Create a Rectangle patch
-                bbox = patches.Rectangle((x1, y1), box_w, box_h, linewidth=2, edgecolor=color, facecolor="none")
+                # linewidth=2
+                bbox = patches.Rectangle((x1, y1), box_w, box_h, linewidth=1, edgecolor=color, facecolor="none")
                 # Add the bbox to the plot
                 ax.add_patch(bbox)
                 # Add label
                 ax.text(
                     x1,
-                    y1,
+                    y1-20,
                     s=detection_data['label'],
+                    fontsize=10, #new
                     color='white',
                     verticalalignment='top',
                     bbox={'color': color, 'pad': 0},

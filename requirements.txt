@@ -7,3 +7,4 @@ tensorboard<2
 terminaltables
 pillow
 tqdm
+pandas

@@ -98,11 +98,11 @@ def ap_per_class(tp, conf, pred_cls, target_cls):
 
             # Recall
             recall_curve = tpc / (n_gt + 1e-16)
-            r.append(recall_curve[-1])
+            r.append(recall_curve[-1])  # when we consider all the detections
 
             # Precision
             precision_curve = tpc / (tpc + fpc)
-            p.append(precision_curve[-1])
+            p.append(precision_curve[-1])  # when we consider all the detections
 
             # AP from recall-precision curve
             ap.append(compute_ap(recall_curve, precision_curve))
