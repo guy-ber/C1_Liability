@@ -2,6 +2,8 @@ import glob
 import random
 import os
 import sys
+from pathlib import Path
+
 import numpy as np
 from PIL import Image
 import torch
@@ -154,14 +156,26 @@ class ImagePaths(Dataset):
 
 
 class ListDataset(Dataset):
-    def __init__(self, list_path, img_size=416, augment=True, multiscale=True, normalized_labels=True):
+    def __init__(self, list_path, label_folder_path=None, 
+                 img_size=416, augment=True, multiscale=True, normalized_labels=True):
         with open(list_path, "r") as file:
             self.img_files = file.readlines()
 
-        self.label_files = [
-            path.replace("images", "labels").replace(".png", ".txt").replace(".jpg", ".txt")
-            for path in self.img_files
-        ]
+        if label_folder_path is None:
+            self.label_files = [
+                path.replace("images", "labels").replace(".png", ".txt").replace(".jpg", ".txt")
+                for path in self.img_files
+            ]
+        else:
+            self.label_files = [
+                (str(Path(label_folder_path)
+                  / Path(path).name)
+                 .replace("images", "labels")
+                 .replace(".png", ".txt")
+                 .replace(".jpg", ".txt"))
+                for path in self.img_files
+            ]
+            
         self.img_size = img_size
         self.max_objects = 100
         self.augment = augment

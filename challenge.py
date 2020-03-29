@@ -8,11 +8,14 @@ import sys
 import time
 import datetime
 import itertools as it
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+import matplotlib.pylab as plt
 from matplotlib.ticker import NullLocator
+import PIL
 
 import torch
 from torch.utils.data import DataLoader
@@ -20,6 +23,9 @@ from torchvision import datasets
 from torchvision import transforms
 from torch.autograd import Variable
 import torch.optim as optim
+
+from agumentation import automold as am
+from agumentation import helpers as hp
 
 
 # Object confidence threshold
@@ -34,6 +40,8 @@ IOU_THRE = 0.5
 # Size of each image dimension
 IMG_SIZE = 416
 
+
+LABEL_FOLDER_PATH = './data/custom/labels'
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
@@ -78,13 +86,14 @@ def detect_imgs(model, imgs, conf_thres=CONF_THRES, nms_thres=NMS_THRES):
 
 
 def get_dataloader(path, path_type='folder', img_size=IMG_SIZE, batch_size=8,
-                   with_targets=True):
+                   with_targets=True, label_folder_path=None):
     assert path_type in ('folder', 'list', 'paths')
 
     if path_type == 'folder':
         dataset = ImageFolder(path, img_size=img_size)
     elif path_type == 'list':
-        dataset = ListDataset(path, img_size=img_size, augment=False, multiscale=False)
+        dataset = ListDataset(path, img_size=img_size, augment=False, multiscale=False,
+                              label_folder_path=label_folder_path)
     elif path_type == 'paths':
         dataset = ImagePaths(path, img_size=img_size)
 
@@ -126,13 +135,12 @@ def parse_detections(detections, class_names):
     return detection_data
     
 
-def detect_multi(model, class_names, path, path_type='list', img_size=IMG_SIZE, batch_size=8, conf_thres=CONF_THRES, nms_thres=0.7,
-                progress=tqdm):
+def detect_multi(model, class_names, path, path_type='list', img_size=IMG_SIZE, batch_size=8, conf_thres=CONF_THRES, nms_thres=0.7, label_folder_path=LABEL_FOLDER_PATH, progress=tqdm):
     imgs = []
     img_detections = []
     
     dataloader = get_dataloader(path, path_type, img_size, batch_size,
-                                with_targets=False)
+                                with_targets=False, label_folder_path=label_folder_path)
 
     for batch_i, (img_paths, input_imgs) in enumerate(progress(dataloader)):
 
@@ -145,14 +153,16 @@ def detect_multi(model, class_names, path, path_type='list', img_size=IMG_SIZE, 
     return imgs, img_detections
 
 
-def evaluate(model, paths, class_names,
+def evaluate(model, paths, class_names, label_folder_path=None,
               iou_thres=0.5, conf_thres=0.8, nms_thres=0.4,
               img_size=416, batch_size=1,
               progress=iter, report=False):
     
     assert batch_size == 1, 'Batch size should be equal to 1.'
    
-    dataloader = get_dataloader(paths, 'list', img_size, batch_size)
+    dataloader = get_dataloader(paths, 'list',
+                                img_size, batch_size,
+                                label_folder_path=label_folder_path)
 
     labels = []
     sample_metrics = []  # List of tuples (TP, confs, pred)
@@ -173,7 +183,7 @@ def evaluate(model, paths, class_names,
 
         sample_metrics += statistics        
 
-        for img_in_batch_i, (path, metrics) in enumerate(it.zip_longest(batch_paths, statistics,
+        for img_in_batch_i, (path, metrics, img_detections) in enumerate(it.zip_longest(batch_paths, statistics, detections,
                                                                         fillvalue=[])):
             target_mask = (targets[:, 0] == img_in_batch_i)
             target_labels = targets[target_mask, 1]
@@ -184,42 +194,54 @@ def evaluate(model, paths, class_names,
                                 'pred_labels': [class_names[int(label_index)]
                                           for label_index in metrics[2]] if metrics else [],
                                 'true_labels': [class_names[int(label_index)]
-                                          for label_index in target_labels] if metrics else []})
+                                          for label_index in target_labels] if metrics else [],
+                                'detections': parse_detections(img_detections, class_names),})
 
     # Concatenate sample statistics
     true_positives, pred_scores, pred_labels = [np.concatenate(x, 0) for x in list(zip(*sample_metrics))]
-    precision, recall, AP, f1, ap_class = ap_per_class(true_positives, pred_scores, pred_labels, labels)
+    precision, recall, AP, f1, ap_class = ap_per_class(true_positives, pred_scores, pred_labels, labels,
+                                                       progress=progress)
 
-    evaluations_df = pd.DataFrame(evaluations)
+    mAP = AP.mean()
     
+    evaluations_df = pd.DataFrame(evaluations)
+
     # Only for the detection of boxes, not classes
     evaluations_df['precision'] = evaluations_df['tp'].apply(lambda tp: np.mean(tp))
     evaluations_df['recall'] = (evaluations_df['tp'].apply(sum)
                                 / evaluations_df['true_labels'].apply(len))
+
+    cols = list(evaluations_df.columns)
+    cols.append(cols.pop(cols.index('detections')))
+    evaluations_df = evaluations_df[cols]
+
 
     if report:
         print("Average Precisions:")
         for i, c in enumerate(ap_class):
             print(f"+ Class '{c}' ({class_names[c]}) - AP: {AP[i]}")
 
-        print(f"mAP: {AP.mean()}")
+        print(f"mAP: {mAP}")
 
-    return precision, recall, AP, f1, ap_class, evaluations_df
+    return precision, recall, AP, f1, ap_class, mAP, evaluations_df
 
 
-def draw_img(path):
+def draw_img(path, ax=None):
+    if ax is None:
+        fig, ax = plt.subplots(1)
+
     img = np.array(Image.open(path))
-    plt.figure()
-    fig, ax = plt.subplots(1)
     ax.imshow(img)
+    plt.tight_layout()
     plt.axis('off')
     plt.gca().xaxis.set_major_locator(NullLocator())
     plt.gca().yaxis.set_major_locator(NullLocator())
     return ax
 
 
-def draw_detections(path, detections, img_size=IMG_SIZE, output_path=None):
+def draw_detections(path, detections, img_size=IMG_SIZE, output_path=None, ax=None):
 
+    
     # Bounding-box colors
     cmap = plt.get_cmap('tab20b')
     colors = [cmap(i) for i in np.linspace(0, 1, 20)]
@@ -232,7 +254,7 @@ def draw_detections(path, detections, img_size=IMG_SIZE, output_path=None):
         # Create plot
         img = np.array(Image.open(path))
         
-        ax = draw_img(path)
+        ax = draw_img(path, ax)
 
         # Draw bounding boxes and labels of detections
         if detections is not None:
@@ -277,3 +299,63 @@ def draw_detections(path, detections, img_size=IMG_SIZE, output_path=None):
             
             output_path += 'png'
             plt.savefig(output_path, bbox_inches='tight', pad_inches=0.0)
+    return ax
+
+
+def draw_evaluation(evaluation, title_prefix='', ax=None):
+    ax = draw_detections(evaluation['path'], evaluation['detections'], ax=ax)
+    ax.set_title(f'{title_prefix}Recall={evaluation.recall}\nPrecision={evaluation.precision}')
+    ax.axis('off')
+    return ax
+
+
+def draw_multiple_detections(evaluations_df):
+    size = int(np.ceil(np.sqrt(len(evaluations_df))))
+    f, axarr = plt.subplots(size, size, figsize=(10, 10))
+    axes = axarr.flatten()
+    
+    for (index, row), ax in zip(evaluations_df.iterrows(), axes):
+        draw_evaluation(row, f'Index={index}\n', ax=ax)
+    
+    plt.tight_layout()
+    
+    return axes
+
+
+def apply_augmentation(paths_file, aug_func, **aug_params):
+    
+    paths_file = Path(paths_file)
+
+    func_name = aug_func.__name__
+    func_params_desc = '-'.join(map(str, aug_params.values())).replace('.', '_')
+    
+    if func_params_desc:
+        func_params_desc = '_' + func_params_desc
+    idetifier = f'{paths_file.stem}--aug-{func_name}{func_params_desc}'
+    
+    output_path = paths_file.parent  / idetifier
+    output_path.mkdir(exist_ok=True)
+    
+    img_paths = paths_file.read_text().splitlines()
+
+    
+    output_img_paths = []
+    
+    for img_path in img_paths:
+    
+        img = np.array(PIL.Image.open(img_path))
+
+        img = aug_func(img, **aug_params)
+
+        # Changed to PNG because JPEG is lossy
+        filename = Path(img_path).stem + '.png'
+        output_img_path = str(output_path / filename)
+        output_img_paths.append(output_img_path)
+        
+        PIL.Image.fromarray(img).save(output_img_path)
+
+    output_paths_file = paths_file.parent / idetifier
+    output_paths_file = output_paths_file.with_suffix('.txt')
+    output_paths_file.write_text('\n'.join(output_img_paths))
+    
+    return str(output_paths_file)
