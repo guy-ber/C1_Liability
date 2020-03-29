@@ -1,6 +1,7 @@
-./weights/
-./venv/
-./logs/
+weights
+venv
+logs
+checkpoints
 
 # Created by https://www.gitignore.io/api/linux,macos,python,windows,jupyternotebooks
 # Edit at https://www.gitignore.io/?templates=linux,macos,python,windows,jupyternotebooks
