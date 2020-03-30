@@ -24,8 +24,8 @@ from torchvision import transforms
 from torch.autograd import Variable
 import torch.optim as optim
 
-from agumentation import automold as am
-from agumentation import helpers as hp
+from augmentation import automold as am
+from augmentation import helpers as hp
 
 
 # Object confidence threshold
