@@ -240,8 +240,6 @@ def draw_img(path, ax=None):
 
 
 def draw_detections(path, detections, img_size=IMG_SIZE, output_path=None, ax=None):
-
-    
     # Bounding-box colors
     cmap = plt.get_cmap('tab20b')
     colors = [cmap(i) for i in np.linspace(0, 1, 20)]
