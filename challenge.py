@@ -185,16 +185,17 @@ def evaluate(model, paths, class_names, label_folder_path=None,
 
         for img_in_batch_i, (path, metrics, img_detections) in enumerate(it.zip_longest(batch_paths, statistics, detections,
                                                                         fillvalue=[])):
+                
             target_mask = (targets[:, 0] == img_in_batch_i)
             target_labels = targets[target_mask, 1]
-
+            
             evaluations.append({'path': path,
                                 'tp': list(metrics[0]) if metrics else [],
                                 'pred_confs': list(metrics[1].numpy()) if metrics else [],
                                 'pred_labels': [class_names[int(label_index)]
                                           for label_index in metrics[2]] if metrics else [],
                                 'true_labels': [class_names[int(label_index)]
-                                          for label_index in target_labels] if metrics else [],
+                                          for label_index in target_labels],
                                 'detections': parse_detections(img_detections, class_names),})
 
     # Concatenate sample statistics
