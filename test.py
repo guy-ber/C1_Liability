@@ -1,9 +1,7 @@
-from __future__ import division
-
-from models import *
-from utils.utils import *
-from utils.datasets import *
-from utils.parse_config import *
+from src.models import *
+from src.utils.utils import *
+from src.utils.datasets import *
+from src.utils.parse_config import *
 
 import os
 import sys

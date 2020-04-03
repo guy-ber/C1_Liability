@@ -1,9 +1,3 @@
-from __future__ import division
-
-from models import *
-from utils.utils import *
-from utils.datasets import *
-
 import os
 import sys
 import time
@@ -20,6 +14,11 @@ from torch.autograd import Variable
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.ticker import NullLocator
+
+from src.models import *
+from src.utils.utils import *
+from src.utils.datasets import *
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

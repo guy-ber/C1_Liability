@@ -1,8 +1,3 @@
-from models import *
-from utils.utils import *
-from utils.datasets import *
-from utils.parse_config import *
-
 import os
 import sys
 import time
@@ -24,8 +19,12 @@ from torchvision import transforms
 from torch.autograd import Variable
 import torch.optim as optim
 
-from augmentation import automold as am
-from augmentation import helpers as hp
+from src.models import *
+from src.utils.utils import *
+from src.utils.datasets import *
+from src.utils.parse_config import *
+from src.augmentation import automold as am
+from src.augmentation import helpers as hp
 
 
 # Object confidence threshold

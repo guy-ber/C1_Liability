@@ -1,19 +1,10 @@
-from __future__ import division
-
-from models import *
-from utils.logger import *
-from utils.utils import *
-from utils.datasets import *
-from utils.parse_config import *
-from test import evaluate
-
-from terminaltables import AsciiTable
-
 import os
 import sys
 import time
 import datetime
 import argparse
+
+from terminaltables import AsciiTable
 
 import torch
 from torch.utils.data import DataLoader
@@ -21,6 +12,14 @@ from torchvision import datasets
 from torchvision import transforms
 from torch.autograd import Variable
 import torch.optim as optim
+
+from src.models import *
+from src.utils.logger import *
+from src.utils.utils import *
+from src.utils.datasets import *
+from src.utils.parse_config import *
+from test import evaluate
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

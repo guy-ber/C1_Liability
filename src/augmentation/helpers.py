@@ -1,12 +1,9 @@
-
 import glob
-import cv2 as cv2
-import numpy as np
-import matplotlib.pyplot as plt
-# import random
 import math
 
-
+import numpy as np
+import matplotlib.pyplot as plt
+import cv2 as cv2
 
 
 err_not_np_img= "not a numpy array or list of numpy array" 
