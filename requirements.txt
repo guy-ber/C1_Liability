@@ -1,6 +1,7 @@
 numpy
 torch>=1.0
 torchvision
+opencv-python-headless
 matplotlib
 tensorflow<2
 tensorboard<2

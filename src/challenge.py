@@ -61,7 +61,7 @@ def load_model(weights_path, model_def, data_config):
         model.load_darknet_weights(weights_path)
     else:
         # Load checkpoint weights
-        model.load_state_dict(torch.load(weights_path))
+        model.load_state_dict(torch.load(weights_path, map_location=torch.device(device)))
 
     model.eval()
 
